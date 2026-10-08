@@ -64,9 +64,8 @@ suggestion appears in the empty composer. Press **Tab** to put it in the
 composer, where you can edit it before you send, or **Esc** to hide it. The
 suggestion disappears when you send your next message.
 
-Claude often has no suggestion, for example after the first message of a
-conversation, in plan mode, after an error, or when you are close to a usage
-limit.
+Claude does not always have a suggestion, for example in plan mode, after an
+error, or when you are close to a usage limit.
 
 ## Usage limits
 
