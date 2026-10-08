@@ -698,9 +698,19 @@ export const ClaudeSettings = makeProviderSettingsSchema(
         },
       }),
     ),
+    // Off by default: the CLI predicts the next prompt after every turn,
+    // which the composer shows as ghost text.
+    promptSuggestions: Schema.Boolean.pipe(
+      Schema.withDecodingDefault(Effect.succeed(false)),
+      Schema.annotateKey({
+        title: "Prompt suggestions",
+        description: "Suggest a next prompt after each turn. Press Tab to use it.",
+        providerSettingsForm: { control: "switch" },
+      }),
+    ),
   },
   {
-    order: ["binaryPath", "homePath", "autoCompactWindow", "launchArgs"],
+    order: ["binaryPath", "homePath", "autoCompactWindow", "promptSuggestions", "launchArgs"],
   },
 );
 export type ClaudeSettings = typeof ClaudeSettings.Type;
@@ -1604,6 +1614,8 @@ const ClaudeSettingsPatch = Schema.Struct({
   autoCompactWindow: Schema.optionalKey(
     TrimmedString.check(Schema.isPattern(CLAUDE_AUTO_COMPACT_WINDOW_PATTERN)),
   ),
+
+  promptSuggestions: Schema.optionalKey(Schema.Boolean),
 });
 
 const CursorSettingsPatch = Schema.Struct({

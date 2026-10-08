@@ -110,6 +110,10 @@ import {
   WorktreeSetupSubscribeInput,
 } from "./worktreeSetup.ts";
 import {
+  ThreadPromptSuggestionStreamEvent,
+  ThreadPromptSuggestionSubscribeInput,
+} from "./promptSuggestion.ts";
+import {
   GitActionProgressEvent,
   VcsSwitchRefInput,
   VcsSwitchRefResult,
@@ -548,6 +552,7 @@ export const WS_METHODS = {
   subscribeVcsStatus: "subscribeVcsStatus",
   subscribeWorktreeSetup: "subscribeWorktreeSetup",
   worktreeSetupCancel: "worktreeSetup.cancel",
+  subscribeThreadPromptSuggestion: "subscribeThreadPromptSuggestion",
   subscribeTerminalEvents: "subscribeTerminalEvents",
   subscribeTerminalMetadata: "subscribeTerminalMetadata",
   subscribePreviewEvents: "subscribePreviewEvents",
@@ -1303,6 +1308,13 @@ const WsSubscribeWorktreeSetupRpc = Rpc.make(WS_METHODS.subscribeWorktreeSetup, 
   stream: true,
 });
 
+const WsSubscribeThreadPromptSuggestionRpc = Rpc.make(WS_METHODS.subscribeThreadPromptSuggestion, {
+  payload: ThreadPromptSuggestionSubscribeInput,
+  success: ThreadPromptSuggestionStreamEvent,
+  error: EnvironmentAuthorizationError,
+  stream: true,
+});
+
 const WsWorktreeSetupCancelRpc = Rpc.make(WS_METHODS.worktreeSetupCancel, {
   payload: WorktreeSetupCancelInput,
   success: WorktreeSetupCancelResult,
@@ -1903,6 +1915,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsSubscribeVcsStatusRpc,
   WsSubscribeWorktreeSetupRpc,
   WsWorktreeSetupCancelRpc,
+  WsSubscribeThreadPromptSuggestionRpc,
   WsVcsPullRpc,
   WsVcsRefreshStatusRpc,
   WsGitRunStackedActionRpc,

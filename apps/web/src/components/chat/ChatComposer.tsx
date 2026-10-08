@@ -256,6 +256,7 @@ import {
   usePullRequestList,
   type EnvironmentQueryTarget,
 } from "~/state/pullRequests";
+import { orchestrationEnvironment } from "~/state/orchestration";
 import { useEnvironmentQuery } from "~/state/query";
 import { useDebouncedValue } from "~/state/queries";
 import { ProviderModelPicker } from "./ProviderModelPicker";
@@ -2837,6 +2838,30 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   );
 
   const isComposerApprovalState = activePendingApproval !== null;
+
+  // The provider's guess at the next prompt, shown as the empty composer's
+  // placeholder while the thread is idle. Tab fills the draft; Esc hides it.
+  const promptSuggestionQuery = useEnvironmentQuery(
+    routeKind === "server"
+      ? orchestrationEnvironment.promptSuggestion({
+          environmentId: routeThreadRef.environmentId,
+          input: { threadId: routeThreadRef.threadId },
+        })
+      : null,
+  );
+  const [dismissedPromptSuggestion, setDismissedPromptSuggestion] = useState<string | null>(null);
+  const promptSuggestion = promptSuggestionQuery.data ?? null;
+  const promptSuggestionKey =
+    promptSuggestion === null ? null : `${promptSuggestion.threadId}\n${promptSuggestion.text}`;
+  const visiblePromptSuggestion =
+    promptSuggestion !== null &&
+    promptSuggestionKey !== dismissedPromptSuggestion &&
+    phase === "ready" &&
+    !isComposerApprovalState &&
+    !activePendingProgress &&
+    !(showPlanFollowUpPrompt && activeProposedPlan)
+      ? promptSuggestion.text
+      : null;
   const composerSuggestionsVisible = composerMenuOpen && !isComposerApprovalState;
   const composerSuggestionListVisible = composerSuggestionsVisible && composerMenuItems.length > 0;
   const activePendingUserInput = pendingUserInputs[0] ?? null;
@@ -4364,6 +4389,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     [composerDraftTarget, promptRef, setComposerDraftPrompt, setComposerTrigger],
   );
 
+  // Context chips count as content: a suggestion only fills a truly empty composer.
+  const isComposerEmptyForPromptSuggestion = () =>
+    promptRef.current.length === 0 &&
+    composerImagesRef.current.length === 0 &&
+    composerFilesRef.current.length === 0 &&
+    composerTerminalContextsRef.current.length === 0 &&
+    composerPreviewAnnotations.length === 0 &&
+    composerReviewComments.length === 0;
+
   const navigatePromptHistory = useCallback(
     (direction: "backward" | "forward", event: KeyboardEvent): boolean => {
       if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey || event.isComposing) {
@@ -4436,6 +4470,25 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     }
     const { trigger } = resolveActiveComposerTrigger();
     const menuIsActive = composerMenuOpenRef.current || trigger !== null;
+    if (
+      visiblePromptSuggestion !== null &&
+      !menuIsActive &&
+      !event.isComposing &&
+      submissionIntent === null &&
+      !event.altKey &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      isComposerEmptyForPromptSuggestion()
+    ) {
+      if (key === "Tab") {
+        replacePromptFromHistory(visiblePromptSuggestion);
+        return true;
+      }
+      if (key === "Escape") {
+        setDismissedPromptSuggestion(promptSuggestionKey);
+        return true;
+      }
+    }
     if (key === "Escape") {
       if (!menuIsActive || event.isComposing || event.keyCode === 229) return false;
       dismissComposerTrigger(trigger);
@@ -7446,7 +7499,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                                 ? "Enable a provider in Settings to send a message"
                                 : phase === "disconnected"
                                   ? DISCONNECTED_COMPOSER_PLACEHOLDER
-                                  : "Ask anything, @tag files/folders, $use skills, or / for commands"
+                                  : visiblePromptSuggestion !== null
+                                    ? `${visiblePromptSuggestion}  ⇥ Tab`
+                                    : "Ask anything, @tag files/folders, $use skills, or / for commands"
                     }
                     disabled={
                       isConnecting ||

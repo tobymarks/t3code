@@ -56,6 +56,18 @@ for that message, open the menu next to the button and choose **Send with full
 history**. See [commands and skills](./composer.md#commands-and-skills) for using
 composer commands.
 
+## Prompt suggestions
+
+Turn on **Prompt suggestions** in the Claude provider settings to have Claude
+suggest your next prompt when a turn finishes. On web and desktop the
+suggestion appears in the empty composer. Press **Tab** to put it in the
+composer, where you can edit it before you send, or **Esc** to hide it. The
+suggestion disappears when you send your next message.
+
+Claude often has no suggestion, for example after the first message of a
+conversation, in plan mode, after an error, or when you are close to a usage
+limit.
+
 ## Usage limits
 
 If your Claude subscription runs out of usage mid-turn, the thread shows which

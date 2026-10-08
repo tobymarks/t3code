@@ -127,6 +127,7 @@ import {
 } from "../ProviderAdapterDriver.ts";
 import { type BackgroundWorkReport, backgroundWorkNotification } from "../Notification.ts";
 import * as ProviderContinuationRequests from "../ProviderContinuationRequests.ts";
+import * as ThreadPromptSuggestions from "../ThreadPromptSuggestions.ts";
 import {
   makeSubagentChildThread,
   makeSubagentConversationArtifacts,
@@ -547,6 +548,7 @@ export function loggedClaudeQueryOptions(
     ...(options.settings === undefined ? {} : { settings: options.settings }),
     ...(options.effort === undefined ? {} : { effort: options.effort }),
     ...(options.includePartialMessages === true ? { includePartialMessages: true } : {}),
+    ...(options.promptSuggestions === true ? { promptSuggestions: true } : {}),
     ...(options.pathToClaudeCodeExecutable === undefined
       ? {}
       : { pathToClaudeCodeExecutable: options.pathToClaudeCodeExecutable }),
@@ -900,6 +902,7 @@ export function makeClaudeQueryOptions(input: {
       : {}),
     ...(input.environment === undefined ? {} : { env: input.environment }),
     ...(input.mcpServers === undefined ? {} : { mcpServers: input.mcpServers }),
+    ...(input.settings?.promptSuggestions === true ? { promptSuggestions: true } : {}),
     systemPrompt: {
       type: "preset" as const,
       preset: "claude_code" as const,
@@ -2998,6 +3001,11 @@ export interface ClaudeAdapterV2Options {
   readonly queryRunner: ClaudeAgentSdkQueryRunnerShape;
   readonly scopedLimitNames?: Ref.Ref<ClaudeScopedLimitNames>;
   readonly onUsageLimits?: ServerProviderShape["applyUsageLimits"];
+  /** Store for the composer's next-prompt ghost text; defaults to dropping it. */
+  readonly promptSuggestions?: Pick<
+    ThreadPromptSuggestions.ThreadPromptSuggestionsShape,
+    "set" | "clear"
+  >;
   /** Sink for wake-turn continuation requests; defaults to dropping them. */
   readonly continuationRequests?: {
     readonly offer: (
@@ -3012,6 +3020,10 @@ export function makeClaudeAdapterV2(
   const { attachmentsDir, fileSystem, path, crypto, idAllocator, queryRunner } = adapterOptions;
   const continuationRequests = adapterOptions.continuationRequests ?? {
     offer: () => Effect.void,
+  };
+  const promptSuggestions = adapterOptions.promptSuggestions ?? {
+    set: () => Effect.void,
+    clear: () => Effect.void,
   };
 
   // Re-scan on every send: skills are added and switched off mid-session, and
@@ -3044,6 +3056,7 @@ export function makeClaudeAdapterV2(
     openSession: Effect.fn("ClaudeAdapterV2.openSession")(
       function* (input: ProviderAdapter.ProviderAdapterV2OpenSessionInput) {
         const sessionScope = yield* Effect.scope;
+        const sessionThreadId = input.threadId;
         const now = yield* DateTime.now;
         const session = providerSession({
           providerSessionId: input.providerSessionId,
@@ -5716,6 +5729,14 @@ export function makeClaudeAdapterV2(
           }
 
           const message = input.message;
+          // Sent after `result` from a background query, so a turn the user
+          // started meanwhile already made it stale.
+          if (message.type === "prompt_suggestion") {
+            if ((yield* Ref.get(activeTurn)) === null) {
+              yield* promptSuggestions.set(sessionThreadId, message.suggestion);
+            }
+            return;
+          }
           // Before any routing: a Monitor started during an idle wake turn
           // reports its task before the drain replays the tool call.
           yield* trackClaudeMonitorCalls(message);
@@ -7552,6 +7573,7 @@ export function makeClaudeAdapterV2(
                   });
             const querySession = yield* openQuery(turnInput, nativeThreadId);
             yield* Ref.set(activeTurn, context);
+            yield* promptSuggestions.clear(sessionThreadId);
             yield* emitProviderEvent({
               type: "provider_turn.updated",
               driver: CLAUDE_PROVIDER,
@@ -7781,6 +7803,7 @@ export function makeClaudeAdapterV2(
         );
 
         const closeSession = Effect.fnUntraced(function* () {
+          yield* promptSuggestions.clear(sessionThreadId);
           const existing = yield* Ref.get(queryContext);
           if (existing !== null) {
             yield* existing.query.close.pipe(Effect.ignore);
@@ -8156,6 +8179,7 @@ export const createClaudeAdapterV2 = Effect.fn("ClaudeAdapterV2Driver.create")(
     const queryRunner = yield* ClaudeAgentSdkQueryRunner;
     const serverConfig = yield* ServerConfig.ServerConfig;
     const continuationRequests = yield* ProviderContinuationRequests.ProviderContinuationRequests;
+    const promptSuggestions = yield* ThreadPromptSuggestions.ThreadPromptSuggestions;
     const baseEnvironment = mergeProviderInstanceEnvironment(environment, hostEnvironment);
     const claudeEnvironment = yield* makeClaudeEnvironment(config, baseEnvironment);
     const path = yield* Path.Path;
@@ -8175,6 +8199,7 @@ export const createClaudeAdapterV2 = Effect.fn("ClaudeAdapterV2Driver.create")(
       idAllocator,
       queryRunner,
       continuationRequests,
+      promptSuggestions,
       ...hooks,
     });
   },

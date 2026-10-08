@@ -76,6 +76,9 @@ const DEFAULT_CLAUDE_SETTINGS = Schema.decodeSync(ClaudeSettings)({});
 const AUTO_COMPACT_CLAUDE_SETTINGS = Schema.decodeSync(ClaudeSettings)({
   autoCompactWindow: "300000",
 });
+const PROMPT_SUGGESTIONS_CLAUDE_SETTINGS = Schema.decodeSync(ClaudeSettings)({
+  promptSuggestions: true,
+});
 const CLAUDE_TEST_MODEL_SELECTION = {
   instanceId: ProviderInstanceId.make(ClaudeAdapterV2.CLAUDE_PROVIDER),
   model: "claude-sonnet-4-6",
@@ -237,6 +240,20 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
     assert.equal((options.settings as { autoCompactWindow?: number }).autoCompactWindow, 300_000);
     assert.equal(options.onUserDialog, onUserDialog);
     assert.deepEqual(options.supportedDialogKinds, ["resume_return"]);
+  });
+
+  it("asks the SDK for prompt suggestions only when the setting is on", () => {
+    const optionsFor = (settings: ClaudeSettings) =>
+      ClaudeAdapterV2.makeClaudeQueryOptions({
+        modelSelection: CLAUDE_TEST_MODEL_SELECTION,
+        nativeThreadId: "native-thread-prompt-suggestions",
+        resume: false,
+        cwd: "/workspace",
+        settings,
+      });
+
+    assert.isUndefined(optionsFor(DEFAULT_CLAUDE_SETTINGS).promptSuggestions);
+    assert.isTrue(optionsFor(PROMPT_SUGGESTIONS_CLAUDE_SETTINGS).promptSuggestions);
   });
 
   it("projects AskUserQuestion input with question text as the answer key", () => {
@@ -2089,6 +2106,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
     // A CLI process opened after the first streams from its own queue, so the
     // first one can exit (Queue.shutdown) and a later turn can start another.
     readonly freshQueueOnReopen?: boolean;
+    readonly promptSuggestions?: ClaudeAdapterV2.ClaudeAdapterV2Options["promptSuggestions"];
   }) =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -2128,6 +2146,9 @@ describe("ClaudeAdapterV2 background wake turns", () => {
               continuationRequests.push(request);
             }),
         },
+        ...(options?.promptSuggestions === undefined
+          ? {}
+          : { promptSuggestions: options.promptSuggestions }),
         queryRunner: {
           allocateSessionId: Effect.succeed(WAKE_NATIVE_SESSION),
           open: (input) =>
@@ -2674,6 +2695,62 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         assert.lengthOf(harness.terminalEvents(), 1);
       }).pipe(Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
     ),
+  );
+
+  it.effect("keeps the prompt suggestion that follows a result until the next turn", () =>
+    Effect.gen(function* () {
+      const suggestions = new Map<ThreadId, string>();
+      const harness = yield* makeWakeHarnessWithOptions({
+        promptSuggestions: {
+          set: (threadId, text) =>
+            Effect.sync(() => {
+              suggestions.set(threadId, text);
+            }),
+          clear: (threadId) =>
+            Effect.sync(() => {
+              suggestions.delete(threadId);
+            }),
+        },
+      });
+      const now = yield* DateTime.now;
+      const suggestion = (uuid: string, text: string) =>
+        claudeSdkFrame({
+          type: "prompt_suggestion",
+          suggestion: text,
+          uuid,
+          session_id: WAKE_NATIVE_SESSION,
+        });
+      const start = (ordinal: number) =>
+        harness.runtime.startTurn(
+          makeClaudeTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now,
+            attemptId: RunAttemptId.make(`attempt-claude-suggestion-${ordinal}`),
+            providerTurnOrdinal: ordinal,
+            text: "Continue.",
+            attachments: [],
+          }),
+        );
+
+      yield* start(1);
+      // The CLI predicts in the background, so one can land mid-turn.
+      yield* harness.offerAndWait(suggestion("00000000-0000-4000-8000-000000000701", "Stale"));
+      assert.isFalse(suggestions.has(harness.threadId));
+
+      yield* Queue.offer(
+        harness.sdkMessages,
+        makeResultFrame({ uuid: "00000000-0000-4000-8000-000000000702", result: "Done." }),
+      );
+      yield* Queue.take(harness.terminalReceipts);
+      yield* harness.offerAndWait(
+        suggestion("00000000-0000-4000-8000-000000000703", "Run the tests"),
+      );
+      assert.equal(suggestions.get(harness.threadId), "Run the tests");
+
+      yield* start(2);
+      assert.isFalse(suggestions.has(harness.threadId));
+    }).pipe(Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
   );
 
   it.effect("announces usage-limit pauses once per window and again on a new turn", () =>

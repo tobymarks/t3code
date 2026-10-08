@@ -1,4 +1,4 @@
-import { ORCHESTRATION_V2_WS_METHODS } from "@t3tools/contracts";
+import { ORCHESTRATION_V2_WS_METHODS, WS_METHODS } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 
 import {
@@ -33,6 +33,13 @@ export function createOrchestrationEnvironmentAtoms<R, E>(
         idleTtlMs: 0,
       }),
     },
+    // The provider's guess at the next prompt, for the composer's ghost text.
+    // Memory only on the server; null whenever there is nothing to suggest.
+    promptSuggestion: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:orchestration:prompt-suggestion",
+      tag: WS_METHODS.subscribeThreadPromptSuggestion,
+      idleTtlMs: 0,
+    }),
     turnDiff: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:orchestration:turn-diff",
       tag: ORCHESTRATION_V2_WS_METHODS.getTurnDiff,

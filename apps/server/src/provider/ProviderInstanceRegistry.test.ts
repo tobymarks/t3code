@@ -120,6 +120,7 @@ const makeClaudeConfig = (overrides: Partial<ClaudeSettings>): ClaudeSettings =>
   customModels: [],
   launchArgs: "",
   autoCompactWindow: "",
+  promptSuggestions: false,
   ...overrides,
 });
 
