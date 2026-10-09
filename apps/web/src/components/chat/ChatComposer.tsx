@@ -2862,6 +2862,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     !(showPlanFollowUpPrompt && activeProposedPlan)
       ? promptSuggestion.text
       : null;
+  // Remembers which thread has shown a suggestion, so a Tab aimed at one that
+  // vanished a moment earlier stays in the composer instead of moving focus.
+  const promptSuggestionShownThreadIdRef = useRef<string | null>(null);
+  const promptSuggestionShown = visiblePromptSuggestion !== null;
+  useEffect(() => {
+    if (promptSuggestionShown) promptSuggestionShownThreadIdRef.current = routeThreadRef.threadId;
+  }, [promptSuggestionShown, routeThreadRef.threadId]);
   const composerSuggestionsVisible = composerMenuOpen && !isComposerApprovalState;
   const composerSuggestionListVisible = composerSuggestionsVisible && composerMenuItems.length > 0;
   const activePendingUserInput = pendingUserInputs[0] ?? null;
@@ -4488,6 +4495,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         setDismissedPromptSuggestion(promptSuggestionKey);
         return true;
       }
+    }
+    if (
+      key === "Tab" &&
+      !event.shiftKey &&
+      !event.altKey &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !menuIsActive &&
+      promptSuggestionShownThreadIdRef.current === routeThreadRef.threadId &&
+      isComposerEmptyForPromptSuggestion()
+    ) {
+      return true;
     }
     if (key === "Escape") {
       if (!menuIsActive || event.isComposing || event.keyCode === 229) return false;
